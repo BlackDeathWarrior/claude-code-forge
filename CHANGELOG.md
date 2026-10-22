@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 **Token savings** (details and measurements in `docs/token-usage.md`)
 - `scripts/spend.mjs`: where the tokens went, by day, agent type and cache miss, read from your own transcripts.
