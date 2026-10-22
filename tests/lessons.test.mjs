@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { add, applicable, detectStack, importLegacy, similarity } from "../scripts/lessons.mjs";
 import { node, tempDir, tempRepo } from "./helpers.mjs";
@@ -117,6 +117,42 @@ test("CLI: import takes a flat global file as machine lessons, and refuses its o
     writeFileSync(flat, "- 2026-10-02 sudo pnpm cannot find pnpm -> pass PATH through sudo env\n");
     assert.match(node(repo.dir, "lessons.mjs", ["import", flat, "--scope", "machine"], env).out, /imported 1/);
     assert.match(node(repo.dir, "lessons.mjs", ["import", join(home.dir, "lessons-all.md"), "--scope", "machine"], env).out, /imported 0/);
+  } finally {
+    repo.cleanup();
+    home.cleanup();
+  }
+});
+
+test("CLI: a damaged store is never overwritten", () => {
+  const repo = tempRepo();
+  const home = tempDir();
+  const env = { AUTOPILOT_HOME: home.dir };
+  try {
+    node(repo.dir, "lessons.mjs", ["add", "--scope", "machine", "always pass PATH through sudo env -> sudo env PATH=$PATH pnpm"], env);
+    const store = join(home.dir, "lessons.json");
+    const broken = readFileSync(store, "utf8").replace(/\]\s*\}\s*$/, "],}");
+    writeFileSync(store, broken);
+    const r = node(repo.dir, "lessons.mjs", ["add", "--scope", "machine", "another lesson that is long enough -> do the other thing"], env);
+    assert.match(r.out, /not valid JSON/);
+    assert.equal(readFileSync(store, "utf8"), broken, "the store is untouched");
+    assert.ok(readdirSync(home.dir).some((f) => f.startsWith("lessons.json.damaged-")), "a copy was kept");
+  } finally {
+    repo.cleanup();
+    home.cleanup();
+  }
+});
+
+test("CLI: sync keeps a hand-kept LESSONS.md it cannot fully import", () => {
+  const repo = tempRepo();
+  const home = tempDir();
+  const env = { AUTOPILOT_HOME: home.dir };
+  try {
+    mkdirSync(join(repo.dir, ".autopilot"), { recursive: true });
+    const hand = "# Lessons\n## This project\n- Always run make seed before the tests -> make seed\n- 2026-10-01 the stub server must start first -> npm run stub\n";
+    writeFileSync(join(repo.dir, ".autopilot", "LESSONS.md"), hand);
+    const out = node(repo.dir, "lessons.mjs", ["sync"], env).out;
+    assert.match(out, /1 line\(s\) .* not in the dated/);
+    assert.equal(readFileSync(join(repo.dir, ".autopilot", "LESSONS.hand.md"), "utf8"), hand);
   } finally {
     repo.cleanup();
     home.cleanup();

@@ -7,8 +7,8 @@
 // Prints one line starting "tdd-check:" and exits 1 only on FAIL.
 // PASS means the tests fail without the change. WEAK PASS means they fail only because a new file they
 // import is gone: a reviewer has to read the assertions.
-import { spawnSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -33,7 +33,7 @@ export function classify(nameStatus) {
   return { tests, source };
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   const sep = argv.indexOf("--");
   const base = argv[0];
@@ -46,7 +46,7 @@ function main() {
     console.error("usage: node tdd-check.mjs <BASE> -- <test command>");
     return 2;
   }
-  const git = (...args) => spawnSync("git", args, { encoding: "utf8" });
+  const git = (...args) => spawnSync("git", ["-c", "core.quotePath=false", ...args], { encoding: "utf8" });
 
   if (git("rev-parse", "--verify", "--quiet", `${base}^{commit}`).status !== 0) return say(`SKIPPED - ${base} is not a commit`);
   if (git("status", "--porcelain", "--untracked-files=no").stdout.trim()) return say("SKIPPED - the tree has uncommitted changes; commit first");
@@ -57,24 +57,60 @@ function main() {
   if (!sourceCount) return say(`SKIPPED - no source files changed since ${base.slice(0, 7)}`);
   if (!tests.length) return say(`NO TESTS - ${sourceCount} source file(s) changed and no test was added or changed. Fine for a pure refactor; a finding for a behaviour change`);
 
-  let result;
   let restoreFailed = "";
   const restore = () => {
     const r = git("reset", "-q", "--hard", "HEAD");
     if (r.status !== 0) restoreFailed = r.stderr.trim();
+    try {
+      unlinkSync(marker);
+    } catch {}
   };
-  process.on("SIGINT", () => {
-    restore();
-    process.exit(130);
-  });
+  // The source is reverted in place (the tests need the checkout's dependencies), so a killed run
+  // would leave the tree reverted. Restore on every signal we can catch, and leave a marker for
+  // the one we cannot (SIGKILL): the next run restores before it starts.
+  const gitDir = git("rev-parse", "--absolute-git-dir").stdout.trim();
+  const marker = join(gitDir, "tdd-check.dirty");
+  if (existsSync(marker)) {
+    git("reset", "-q", "--hard", "HEAD");
+    unlinkSync(marker);
+    return say("SKIPPED - a previous run was killed while the source was reverted; the tree has been restored. Run the check again");
+  }
+  let child = null;
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(sig, () => {
+      child?.kill("SIGKILL");
+      restore();
+      process.exit(128 + ({ SIGINT: 2, SIGTERM: 15, SIGHUP: 1 })[sig]);
+    });
+  }
+  const run = () =>
+    new Promise((resolveRun) => {
+      let out = "";
+      let timedOut = false;
+      child = spawn(command, { shell: true, env: { ...process.env, CI: "1" } });
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, 20 * 60 * 1000);
+      child.on("error", (error) => resolveRun({ status: 127, output: out, error }));
+      child.on("close", (status) => {
+        clearTimeout(timer);
+        resolveRun({ status: status ?? 1, output: out, timedOut });
+      });
+    });
+
+  let result;
   try {
+    writeFileSync(marker, `${base}\n`);
     // Source as it was at BASE; tests as they are at HEAD.
     for (const f of source.added) if (existsSync(f)) rmSync(join(process.cwd(), f));
     for (let i = 0; i < source.changed.length; i += 50) {
       const r = git("checkout", base, "--", ...source.changed.slice(i, i + 50));
       if (r.status !== 0) throw new Error(r.stderr.trim());
     }
-    result = spawnSync(command, { shell: true, encoding: "utf8", timeout: 20 * 60 * 1000, env: { ...process.env, CI: "1" } });
+    result = await run();
   } catch (e) {
     restore();
     return say(`SKIPPED - could not set the source back to ${base.slice(0, 7)}: ${e.message}`);
@@ -85,16 +121,22 @@ function main() {
   }
 
   const shown = tests.slice(0, 6).join(", ") + (tests.length > 6 ? `, +${tests.length - 6} more` : "");
-  if (result.error && result.error.code === "ETIMEDOUT") return say(`INCONCLUSIVE - \`${command}\` did not finish in 20 minutes with the source reverted`);
+  if (result.timedOut) return say(`INCONCLUSIVE - \`${command}\` did not finish in 20 minutes with the source reverted`);
   if (result.status === 0) {
     return say(`FAIL - with the ${sourceCount} changed source file(s) put back to ${base.slice(0, 7)}, \`${command}\` still passes. The tests in this change do not test it: ${shown}`, 1);
   }
+  // A command that does not exist is not a failing test.
+  if (result.error || result.status === 126 || result.status === 127) return say(`INCONCLUSIVE - \`${command}\` could not run (exit ${result.status}): ${(result.error?.message ?? result.output.trim().split("\n").pop() ?? "").slice(0, 160)}`);
+  // Red with the change must also mean green with it: otherwise the failure says nothing about the change.
+  const atHead = spawnSync(command, { shell: true, encoding: "utf8", timeout: 20 * 60 * 1000, env: { ...process.env, CI: "1" } });
+  if (git("status", "--porcelain", "--untracked-files=no").stdout.trim()) git("reset", "-q", "--hard", "HEAD");
+  if (atHead.status !== 0) return say(`INCONCLUSIVE - \`${command}\` also fails at HEAD (exit ${atHead.status}), so its failure with the source reverted proves nothing. Fix the suite first`);
   // A new file taken away makes an importing test fail before any assertion runs. That proves the file exists, not that the tests check it.
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const output = result.output;
   if (source.added.length && !source.changed.length && MISSING_FILE.test(output)) {
     return say(`WEAK PASS - \`${command}\` fails with the new source file(s) removed, but on a missing import (exit ${result.status}), before any assertion ran. That shows the tests need the file, not that they check it: the reviewer must read their assertions. Tests: ${shown}`);
   }
   return say(`PASS - with the ${sourceCount} changed source file(s) put back to ${base.slice(0, 7)}, \`${command}\` fails (exit ${result.status}), so the tests depend on the change: ${shown}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(main());
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().then((code) => process.exit(code));

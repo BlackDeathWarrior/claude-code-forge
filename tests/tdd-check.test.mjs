@@ -75,3 +75,52 @@ test("NO TESTS, SKIPPED on a dirty tree, SKIPPED with no source change, usage er
     r.cleanup();
   }
 });
+
+const withMul = () => {
+  const r = tempRepo(BASE);
+  const base = r.git("rev-parse", "HEAD").out;
+  r.write("src/calc.js", "export const add = (a, b) => a + b;\nexport const mul = (a, b) => a * b;\n");
+  r.write("tests/calc.test.js", 'import * as c from "../src/calc.js";\nif (c.mul(2, 3) !== 6) process.exit(1);\n');
+  r.commit("mul");
+  return { r, base };
+};
+
+test("INCONCLUSIVE: a test command that does not exist is not a failing test", () => {
+  const { r, base } = withMul();
+  try {
+    const out = node(r.dir, "tdd-check.mjs", [base, "--", "definitely-not-a-command-xyz"]);
+    assert.equal(out.status, 0, out.out);
+    assert.match(out.out, /^tdd-check: INCONCLUSIVE/);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("INCONCLUSIVE: a suite that is already red at HEAD proves nothing", () => {
+  const { r, base } = withMul();
+  try {
+    const out = node(r.dir, "tdd-check.mjs", [base, "--", "node -e process.exit(3)"]);
+    assert.match(out.out, /^tdd-check: INCONCLUSIVE/);
+    assert.match(out.out, /also fails at HEAD/);
+    assert.equal(r.git("status", "--porcelain", "--untracked-files=no").out, "", "tree restored");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a killed run leaves the tree restored", { skip: process.platform === "win32" }, async () => {
+  const { r, base } = withMul();
+  try {
+    const { spawn } = await import("node:child_process");
+    const { join } = await import("node:path");
+    const { scripts } = await import("./helpers.mjs");
+    const child = spawn(process.execPath, [join(scripts, "tdd-check.mjs"), base, "--", "node -e \"setTimeout(function(){},30000)\""], { cwd: r.dir });
+    await new Promise((resolve) => setTimeout(resolve, 1500)); // the source is reverted and the command is running
+    assert.notEqual(r.git("status", "--porcelain", "--untracked-files=no").out, "", "reverted while running");
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.on("close", resolve));
+    assert.equal(r.git("status", "--porcelain", "--untracked-files=no").out, "", "restored after SIGTERM");
+  } finally {
+    r.cleanup();
+  }
+});

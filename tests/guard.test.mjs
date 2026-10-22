@@ -137,6 +137,47 @@ test("heredoc bodies are text, but the command around them still counts", () => 
   assert.notEqual(verdict("cat <<EOF > f\nx\nEOF\ngit push --force", here), null);
 });
 
+// Found in review: each of these once slipped through. Pinned to the rule that must fire.
+const REVIEWED = [
+  ["bash <<EOF\ngit push --force\nEOF", "force-push"],
+  ["cat <<EOF | sh\ngit push --force\nEOF", "force-push"],
+  ["if true; then git push --force; fi", "force-push"],
+  ["for i in 1 2; do git push --force; done", "force-push"],
+  ["sudo -u root git push --force", "force-push"],
+  ["env -i git push --force", "force-push"],
+  ["timeout 10 git push --force", "force-push"],
+  ["xargs git push --force", "force-push"],
+  ["git push \\\n  --force", "force-push"],
+  ["git push origin\\\n main", "protected-push"],
+  ["git push --all origin", "protected-push"],
+  ["git commit --no-verif -m x", "hook-bypass"],
+  ["git branch -df tmp", "branch-force-delete"],
+  ["git branch -d -f tmp", "branch-force-delete"],
+  ["gh -R o/r repo delete", "gh-delete"],
+  ["gh --repo o/r release delete v1", "gh-delete"],
+  ["gh api -XDELETE /repos/o/r", "gh-api-delete"],
+  ["gh api --method=DELETE /repos/o/r", "gh-api-delete"],
+  ['rm -rf "$PWD"', "recursive-delete"],
+  ["rm -rf $(pwd)", "recursive-delete"],
+  ["rm -rf ./..", "recursive-delete"],
+  ["rm -rf src/../..", "recursive-delete"],
+  ["script -c 'git push --force' /dev/null", "force-push"],
+];
+
+test("review regressions: each bypass is caught by the right rule", () => {
+  for (const [command, id] of REVIEWED) assert.equal(verdict(command, here)?.id, id, command);
+});
+
+test("heredoc text that feeds a program, not a shell, is still ignored", () => {
+  assert.equal(verdict("git commit -F - <<EOF\nnote: git push --force is blocked\nEOF", here), null);
+  assert.equal(verdict("cat > notes.md <<'EOF'\nrm -rf ~\nEOF", here), null);
+});
+
+test("agent worktrees may be force-removed, and ordinary wrapped commands pass", () => {
+  assert.equal(verdict("git worktree remove --force /r/.claude/worktrees/agent-1", here), null);
+  for (const c of ["timeout 10 npm test", "sudo apt update", "if [ -f x ]; then echo hi; fi", "rm -rf ./build", "gh api repos/o/r"]) assert.equal(verdict(c, here), null, c);
+});
+
 test("allow entries: a rule id, or rule:glob that every subject must match", () => {
   const h = (c) => verdict(c, here, []);
   assert.equal(allowed(h("git branch -D tmp/a"), ["branch-force-delete"]), true);

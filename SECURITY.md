@@ -8,8 +8,9 @@ It is **not a sandbox**. It does not stop:
 
 - a command it cannot parse (it fails open, on purpose: a guard that blocks on a parse error blocks real work);
 - a destructive action by a tool other than Bash and PowerShell, or through a script the agent wrote and then ran (`node cleanup.js`);
+- a heredoc fed to a program the guard does not recognise as an interpreter, or any language that runs a shell command from inside its own code (`python -c "os.system(...)"`);
 - obfuscation: variables, `base64 -d | sh`, or building a command out of pieces;
-- anything an agent can do after editing `guard.json` or `hooks.json`. The rules file is meant to be edited by you, but nothing stops an agent that has write access to the repository from writing `.autopilot/guard.json`. Put allowances you rely on in `~/.claude/autopilot/guard.json` and review changes to repository files.
+- anything an agent can do after editing `guard.json` or `hooks.json`. The rules file is meant to be edited by you, but nothing stops an agent that has write access to the repository from writing `.autopilot/guard.json`. Put allowances you rely on in `~/.claude/autopilot/guard.json` and review changes to repository files. A repository file's `scope` also overrides the machine's, so treat `.autopilot/guard.json` as part of what a reviewer reads.
 
 Real protection is the branch model (work happens on a branch, a pull request is the only way in) and your repository's branch protection.
 
