@@ -9,6 +9,8 @@ effort: low
 
 # Verify
 
+Agents of this plugin are dispatched by their scoped name, `autopilot-forge:<agent>` (`autopilot-forge:planner`, `autopilot-forge:coder`), so a same-named agent of the user's cannot shadow them. The bare names in this file are shorthand for those.
+
 Answer one question about the current branch: is it ready for a pull request? This skill reports and changes nothing.
 
 1. **Find the gate.** When a plan under `docs/plans/` names this branch as its `Integration branch`, its Contract's `Gate` is the gate. Otherwise read the project's own commands (package scripts, Makefile, CI workflow) for build, typecheck, lint and tests, in that order.
@@ -24,7 +26,7 @@ Types:  ok | <n> errors
 Lint:   ok | <n> issues
 Tests:  <passed>/<total>
 Scan:   P0 <n>, P1 <n>, P2 <n>, P3 <n>
-TDD:    PASS | FAIL | NO TESTS | SKIPPED
+TDD:    PASS | WEAK PASS | FAIL | NO TESTS | SKIPPED
 Tree:   clean | <n> uncommitted files
 ```
 

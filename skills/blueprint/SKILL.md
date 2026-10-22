@@ -7,6 +7,8 @@ disable-model-invocation: true
 
 # Blueprint
 
+Agents of this plugin are dispatched by their scoped name, `autopilot-forge:<agent>` (`autopilot-forge:planner`, `autopilot-forge:coder`), so a same-named agent of the user's cannot shadow them. The bare names in this file are shorthand for those.
+
 Turn `$ARGUMENTS` into a **blueprint**: a plan directory that `/autopilot` builds with nobody watching. `/autopilot` runs this procedure as its Plan phase; typed on its own, `/blueprint` plans now and leaves the build for later. This is the only stage where the user answers anything, so every decision an implementer would otherwise guess gets settled here. This skill is the whole planning process for this run, standing in for any brainstorming or plan-writing skill, and it writes no product code.
 
 **Two tiers plan, and each does what it is priced for.** This session, on whatever model it is running, finds the facts and interviews the user. The `planner` agent, on Opus 5.5 at high effort, does the design: it turns the settled decisions into the spec, the task graph and the contract. The session's model is never changed, and the expensive tier is spent only on the step that needs it.

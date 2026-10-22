@@ -6,6 +6,10 @@ argument-hint: "[what you want built, or a plan directory]"
 
 # Autopilot
 
+Agents of this plugin are dispatched by their scoped name, `autopilot-forge:<agent>` (`autopilot-forge:planner`, `autopilot-forge:coder`), so a same-named agent of the user's cannot shadow them. The bare names in this file are shorthand for those.
+
+**Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. A file you open with the Read tool shows the variable name `CLAUDE_PLUGIN_ROOT` unreplaced, as in `blueprint/SKILL.md` and `GRAPH.md`: it stands for this path, and so does `<scripts>` for its `scripts/` directory.
+
 The one entry point. You take `$ARGUMENTS` from wherever it stands to a finished branch or pull request, moving through three **phases** without the user steering between them: **Plan** (with the user), **Build** (without them), **Report**.
 
 This session stays on whatever model it is running: you route, interview and relay. The work that needs a particular tier goes to an agent pinned to it: the `planner` (Opus 5.5 high) designs the plan, and the `conductor` (Sonnet 5.5 medium) builds it.
@@ -41,6 +45,7 @@ When the conductor reports back:
 
 - Its message starts `OUTCOME:`: go to Report.
 - Its message starts `STOP:`: go to Report with the stop reason and the decision it needs.
+- Its message starts `CHECKPOINT:`: it stopped on purpose after a few waves so that its context stays small, and the ledger holds everything. Dispatch a fresh `conductor` with the same prompt. Do this as often as it asks, up to 20 times.
 - Anything else (it ran out of turns, crashed, or returned without a verdict): dispatch a fresh `conductor` with the same prompt. It resumes from the ledger. Do this at most twice, then Report what the ledger shows.
 
 In this phase you dispatch the conductor and nothing else: every building agent is the conductor's to dispatch.

@@ -9,10 +9,10 @@ The graph maps **structure**: files, symbols, imports, calls, inheritance, each 
 One command builds the graph when there is none and refreshes it when there is, using no model tokens (code is parsed locally):
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/graph-refresh.mjs"
+node "<scripts>/graph-refresh.mjs"
 ```
 
-Run it from the repository root. It prints one line starting `graph:` and never fails the caller: `built` or `updated` mean GRAPH is ready; `none yet` (a repository with no code so far), `skipped` or `stale` mean work goes on by reading source. It also keeps an untracked `graphify-out/` out of `git status`.
+`<scripts>` is the plugin's `scripts/` directory (the dispatch gives its path). Run it from the repository root. It prints one line starting `graph:` and never fails the caller: `built` or `updated` mean GRAPH is ready; `none yet` (a repository with no code so far), `skipped` or `stale` mean work goes on by reading source. It also keeps an untracked `graphify-out/` out of `git status`.
 
 The script covers code. A graph that also holds documents, papers or images got them from `/graphify`, which spends model tokens on them: that is the user's call, made at planning, and the refresh leaves that layer in place.
 
