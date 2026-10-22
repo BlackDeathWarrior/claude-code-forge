@@ -7,6 +7,8 @@
 //
 // Off switches: create the file ~/.claude/autopilot-auto.off, or set AUTOPILOT_AUTO=0.
 // For one prompt: start it with "quick:" or include "no autopilot".
+// Route to another skill (a personal /autopilot of your own): set AUTOPILOT_SKILL=autopilot,
+// or put the skill name in the file ~/.claude/autopilot-auto.skill.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -18,13 +20,25 @@ const BUILD_OBJECT = /\b(app|application|website|web ?site|site|page|landing pag
 // Messages the harness delivers as prompts that no person typed.
 const MACHINE = /<task-notification>|\[Subagent hand-back\]|<agent-message|\[SYSTEM NOTIFICATION|<cross-session-message|<ci-monitor-event>|\[Artifact comment sent to Claude\]/;
 
-const FIRST = [
+const DEFAULT_SKILL = "autopilot-forge:autopilot";
+
+/** The skill the nudge names: env var, then ~/.claude/autopilot-auto.skill, then the plugin's own. */
+export function targetSkill(env = process.env, home = homedir()) {
+  const ok = (v) => (typeof v === "string" && /^[A-Za-z0-9_:.-]{1,80}$/.test(v.trim()) ? v.trim() : null);
+  let fromFile = null;
+  try {
+    fromFile = ok(readFileSync(join(home, ".claude", "autopilot-auto.skill"), "utf8"));
+  } catch {}
+  return ok(env.AUTOPILOT_SKILL) || fromFile || DEFAULT_SKILL;
+}
+
+const first = (skill) => [
   "[autopilot] This prompt looks like a request to build or change software.",
-  "If it is multi-step work on a codebase (an app, a feature, a refactor, a fix that needs more than one small edit) and the autopilot pipeline is not already running for this same work in this conversation, call the Skill tool with `autopilot-forge:autopilot`, passing the user's request as its arguments, before doing anything else.",
+  `If it is multi-step work on a codebase (an app, a feature, a refactor, a fix that needs more than one small edit) and the autopilot pipeline is not already running for this same work in this conversation, call the Skill tool with \`${skill}\`, passing the user's request as its arguments, before doing anything else.`,
   "Answer directly, without autopilot, when it is a question, an explanation, a review, a change you can finish correctly in one edit of a few lines, or not about a codebase.",
   "The user skips the pipeline for one prompt by starting it with `quick:`.",
 ].join(" ");
-const AGAIN = "[autopilot] Reminder: a new multi-step build request goes through the `autopilot-forge:autopilot` skill; anything that continues the run already in progress in this conversation simply continues it.";
+const again = (skill) => `[autopilot] Reminder: a new multi-step build request goes through the \`${skill}\` skill; anything that continues the run already in progress in this conversation simply continues it.`;
 
 /** "first", "again", or null for a prompt that should pass untouched. */
 export function classify(prompt, { nudgedBefore = false } = {}) {
@@ -76,7 +90,7 @@ function main() {
   try {
     if (file) writeFileSync(file, new Date().toISOString());
   } catch {}
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: kind === "first" ? FIRST : AGAIN } }));
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: kind === "first" ? first(targetSkill()) : again(targetSkill()) } }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

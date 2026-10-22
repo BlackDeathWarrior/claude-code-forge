@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,7 +68,8 @@ test("words inside a code block do not trigger", () => {
 
 // End to end, the way the harness calls it.
 const stateDir = mkdtempSync(join(tmpdir(), "nudge-state-"));
-const run = (payload, env = {}) => spawnSync(process.execPath, [script], { input: payload, encoding: "utf8", env: { ...process.env, AUTOPILOT_STATE_DIR: stateDir, ...env } });
+const emptyHome = mkdtempSync(join(tmpdir(), "nudge-empty-home-")); // a host's own off or skill file must not change results
+const run = (payload, env = {}) => spawnSync(process.execPath, [script], { input: payload, encoding: "utf8", env: { ...process.env, HOME: emptyHome, USERPROFILE: emptyHome, AUTOPILOT_SKILL: "", AUTOPILOT_AUTO: "", AUTOPILOT_STATE_DIR: stateDir, ...env } });
 const sid = `test-${process.pid}-${Date.now()}`;
 const first = run(JSON.stringify({ session_id: sid, prompt: TRIGGER[0], cwd: here, hook_event_name: "UserPromptSubmit" }));
 const second = run(JSON.stringify({ session_id: sid, prompt: TRIGGER[1], cwd: here, hook_event_name: "UserPromptSubmit" }));
@@ -92,4 +93,15 @@ test("end to end: nudge once in full, then short; silent when off or on bad inpu
     ["bad input exits 0 silently", junk.status === 0 && junk.stdout === ""],
   ];
   for (const [name, ok] of checks) assert.ok(ok, name);
+});
+
+test("targetSkill: default, env override, file override, bad values ignored", async () => {
+  const { targetSkill } = await import("../scripts/auto-trigger.mjs");
+  const home = mkdtempSync(join(tmpdir(), "nudge-home-"));
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  assert.equal(targetSkill({}, home), "autopilot-forge:autopilot");
+  writeFileSync(join(home, ".claude", "autopilot-auto.skill"), "autopilot\n");
+  assert.equal(targetSkill({}, home), "autopilot");
+  assert.equal(targetSkill({ AUTOPILOT_SKILL: "my:skill" }, home), "my:skill");
+  assert.equal(targetSkill({ AUTOPILOT_SKILL: "bad name`;rm" }, home), "autopilot");
 });
