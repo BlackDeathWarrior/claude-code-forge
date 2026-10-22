@@ -1,4 +1,6 @@
-# claude-code-forge
+# autopilot-forge
+
+(The repository is `claude-code-forge`; the plugin is installed as `autopilot-forge`, because plugin names that start with `claude-` are reserved.)
 
 A [Claude Code](https://claude.com/claude-code) plugin with two tools:
 
@@ -7,7 +9,7 @@ A [Claude Code](https://claude.com/claude-code) plugin with two tools:
 
 Both share a safety guard, a code-graph layer that keeps context cheap, and a cross-project memory of what earlier runs learned.
 
-> **Status:** v0.1, honest about its maturity. The scripts have self-tests (the guard passes 92 cases, the prompt router 41), and each agent and stage has been exercised in isolation on sample projects. The full chain — a typed prompt carried all the way to a merged PR, and a live `/recon` against a real target — has **not** been run end to end. Treat it as a strong scaffold to try on low-stakes work first, not a proven autopilot.
+> **Status:** v0.2. Every script has tests (`npm test`; CI is set up for Linux, macOS and Windows), and `npm run validate` plus `claude plugin validate . --strict` check the plugin's shape. Each agent and stage has been exercised in isolation on sample projects, and the pipeline's design has run real builds elsewhere, but the full chain in this plugin — a typed prompt carried all the way to a merged PR, and a live `/recon` against a real target — has **not** been run end to end. Treat it as a strong scaffold to try on low-stakes work first, not a proven autopilot.
 
 ## What's inside
 
@@ -18,7 +20,7 @@ Both share a safety guard, a code-graph layer that keeps context cheap, and a cr
 | `/verify` | One-shot readiness check on a branch (gate + leftover scan + TDD check). |
 | `/recon` | Reverse engineering with authorization and scope gates; dispatches evidence-first `analyst` subagents. |
 | 10 agents | `conductor` (runs a build), `coder` / `ux` / `db` (implementers), `reviewer`, `runner`, `senior` (Opus escalation), `planner` (Opus), `analyst` + `senior-analyst` (RE, Sonnet + Opus escalation). |
-| Scripts | `guard` (blocks destructive commands), `graph-refresh` / `graph-brief` (code graph), `tdd-check` (proves new tests fail without the change), `scan-diff` (secrets / debug leftovers), `lessons` (cross-project memory), `auto-trigger` (routes build prompts into the pipeline), `rea-mcp` (toggle the RE engine). |
+| Scripts | `guard` (blocks destructive commands), `graph-refresh` / `graph-brief` (code graph), `tdd-check` (proves new tests fail without the change), `scan-diff` (secrets / debug leftovers), `lessons` (cross-project memory), `host-load` (how many lanes this machine can carry), `status` (where a build stands, and a resume hint at session start), `auto-trigger` (routes build prompts into the pipeline), `rea-mcp` (toggle the RE engine). |
 
 ### How a build runs
 
@@ -41,7 +43,7 @@ The session model only drives light orchestration; the work is pinned per agent,
 
 ```
 /plugin marketplace add BlackDeathWarrior/claude-code-forge
-/plugin install claude-code-forge@claude-code-forge
+/plugin install autopilot-forge@autopilot-forge
 ```
 
 Then set your session permission mode to **Auto** before approving a plan, so the build runs unattended.
@@ -76,8 +78,24 @@ Where a companion is missing, the forge still runs the parts it can and reports 
 
 ## Safety
 
-- **The guard** (a PreToolUse hook) blocks force-pushes, pushes to protected branches, hook bypasses, history rewrites, and recursive deletes of a root, home, or `.git` — in every session, not just builds. It only blocks genuinely destructive commands; remove the `PreToolUse` entry from `hooks/hooks.json` if you don't want it session-wide.
+- **The guard** (a PreToolUse hook) blocks force-pushes, pushes to protected branches, hook bypasses, history rewrites, force-deletes of branches and worktrees, and recursive deletes of a root, home, or `.git`. It is a tripwire, not a sandbox: see [SECURITY.md](SECURITY.md) for what it does not catch. Every block names its rule (`[force-push]`), and the agent is told to report a blocker rather than work around it.
+- **Loosening it is your call, not the agent's.** Put a rules file at `<repo>/.autopilot/guard.json` or `~/.claude/autopilot/guard.json`:
+  ```json
+  { "scope": "runs", "allow": ["branch-force-delete:tmp/*", "force-push:my-feature/*"] }
+  ```
+  `"scope": "runs"` guards a repository only while a build is in progress there, so your own sessions are left alone. An `allow` entry is a rule id, or `rule:glob` to allow it only when every branch or path the command touches matches. The pipeline's own throwaway lane branches (`autopilot-lane/*`) and lane worktrees are allowed already.
 - **`/recon` never crosses two lines on its own:** whether a teardown is authorized at all, and whether anything may run a target or write machine config. Both are your explicit yes.
+
+## Development
+
+```
+npm test                                  # every script, on node:test
+npm run validate                          # names, frontmatter, links, hook scripts, ${CLAUDE_PLUGIN_ROOT} placement
+claude plugin validate . --strict         # the manifest against Claude Code's own schema
+claude --plugin-dir .                     # try the working tree in a session
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## License
 

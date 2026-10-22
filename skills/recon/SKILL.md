@@ -7,6 +7,8 @@ disable-model-invocation: true
 
 # Recon
 
+Agents of this plugin are dispatched by their scoped name, `autopilot-forge:<agent>` (`autopilot-forge:planner`, `autopilot-forge:coder`), so a same-named agent of the user's cannot shadow them. The bare names in this file are shorthand for those.
+
 Reverse-engineer a target and leave a findings file behind. You orchestrate: you confirm the scope with the human, check what the engine can actually do, dispatch `analyst` subagents, review their evidence, and write the report. The analysts read and observe; the `reverse-engineer-anything` skill is the engine they drive.
 
 This is deliberately **human-in-the-loop**, unlike `/autopilot`. Reverse engineering is dual-use, and two gates stay with the user: whether the teardown is allowed at all, and whether anything may touch a running target or write machine configuration. You never cross those on your own judgment.
@@ -37,7 +39,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/rea-mcp.mjs" enable
 Then check what is actually available before promising analysis. One `runner` dispatch (or do it yourself), read-only:
 
 ```
-npx -y rea-agents@latest doctor --client claude_code --json
+npx -y rea-agents@6.5.0 doctor --client claude_code --json
 ```
 
 Read the result and tell the user, in plain language, what the approved scope can and cannot do right now:
