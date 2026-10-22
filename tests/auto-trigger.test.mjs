@@ -1,10 +1,15 @@
-// Run: node auto-trigger.test.mjs
+// Run: node --test tests/
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { classify } from "./auto-trigger.mjs";
+import { classify } from "../scripts/auto-trigger.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const script = join(here, "..", "scripts", "auto-trigger.mjs");
 
 const TRIGGER = [
   "Build me a CRM for WhatsApp leads with a dashboard",
@@ -45,14 +50,25 @@ const PASS = [
   "is the code in this repo any good, and what would you change first",
 ];
 
-let failed = 0;
-for (const p of TRIGGER) if (classify(p) !== "first") (failed++, console.log(`FAIL (should trigger): ${p}`));
-for (const p of PASS) if (classify(p) !== null) (failed++, console.log(`FAIL (should pass untouched): ${p}`));
-if (classify(TRIGGER[0], { nudgedBefore: true }) !== "again") (failed++, console.log("FAIL: second nudge in a session should be the short one"));
-if (classify("here is the log:\n```\nbuild failed: add feature to app\n```\nwhat went wrong?") !== null) (failed++, console.log("FAIL: words inside a code block should not trigger"));
+test("requests to build or change software trigger the nudge", () => {
+  for (const p of TRIGGER) assert.equal(classify(p), "first", p);
+});
+
+test("questions, replies and small asks pass untouched", () => {
+  for (const p of PASS) assert.equal(classify(p), null, p);
+});
+
+test("the second nudge in a session is the short one", () => {
+  assert.equal(classify(TRIGGER[0], { nudgedBefore: true }), "again");
+});
+
+test("words inside a code block do not trigger", () => {
+  assert.equal(classify("here is the log:\n```\nbuild failed: add feature to app\n```\nwhat went wrong?"), null);
+});
 
 // End to end, the way the harness calls it.
-const run = (payload, env = {}) => spawnSync(process.execPath, [join(here, "auto-trigger.mjs")], { input: payload, encoding: "utf8", env: { ...process.env, ...env } });
+const stateDir = mkdtempSync(join(tmpdir(), "nudge-state-"));
+const run = (payload, env = {}) => spawnSync(process.execPath, [script], { input: payload, encoding: "utf8", env: { ...process.env, AUTOPILOT_STATE_DIR: stateDir, ...env } });
 const sid = `test-${process.pid}-${Date.now()}`;
 const first = run(JSON.stringify({ session_id: sid, prompt: TRIGGER[0], cwd: here, hook_event_name: "UserPromptSubmit" }));
 const second = run(JSON.stringify({ session_id: sid, prompt: TRIGGER[1], cwd: here, hook_event_name: "UserPromptSubmit" }));
@@ -66,16 +82,14 @@ const ctx = (r) => {
     return null;
   }
 };
-const checks = [
-  ["first nudge names the skill", first.status === 0 && /call the Skill tool with `autopilot`/.test(ctx(first) || "")],
-  ["first nudge is valid hook JSON", JSON.parse(first.stdout).hookSpecificOutput.hookEventName === "UserPromptSubmit"],
-  ["second nudge is the short reminder", second.status === 0 && /^\[autopilot\] Reminder/.test(ctx(second) || "")],
-  ["a question prints nothing", quiet.status === 0 && quiet.stdout === ""],
-  ["AUTOPILOT_AUTO=0 prints nothing", off.status === 0 && off.stdout === ""],
-  ["bad input exits 0 silently", junk.status === 0 && junk.stdout === ""],
-];
-for (const [name, ok] of checks) if (!ok) (failed++, console.log(`FAIL: ${name}`));
-
-const total = TRIGGER.length + PASS.length + 2 + checks.length;
-console.log(failed ? `${failed} of ${total} failed` : `all ${total} passed`);
-process.exit(failed ? 1 : 0);
+test("end to end: nudge once in full, then short; silent when off or on bad input", () => {
+  const checks = [
+    ["first nudge names the skill", first.status === 0 && /call the Skill tool with `autopilot-forge:autopilot`/.test(ctx(first) || "")],
+    ["first nudge is valid hook JSON", JSON.parse(first.stdout).hookSpecificOutput.hookEventName === "UserPromptSubmit"],
+    ["second nudge is the short reminder", second.status === 0 && /^\[autopilot\] Reminder/.test(ctx(second) || "")],
+    ["a question prints nothing", quiet.status === 0 && quiet.stdout === ""],
+    ["AUTOPILOT_AUTO=0 prints nothing", off.status === 0 && off.stdout === ""],
+    ["bad input exits 0 silently", junk.status === 0 && junk.stdout === ""],
+  ];
+  for (const [name, ok] of checks) assert.ok(ok, name);
+});
