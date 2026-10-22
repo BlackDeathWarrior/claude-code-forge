@@ -70,6 +70,7 @@ Where a companion is missing, the forge still runs the parts it can and reports 
 - **Build:** `/autopilot add a refunds feature to the billing module`
 - **Plan now, build later:** `/blueprint ...`, then `/autopilot docs/plans/<dir>`
 - **Skip the pipeline for a one-liner:** start the prompt with `quick:` — no interview, no subagents.
+- **Route build prompts to a skill of your own:** set `AUTOPILOT_SKILL=autopilot` or put the skill name in `~/.claude/autopilot-auto.skill`. Switch the routing off with `~/.claude/autopilot-auto.off` or `AUTOPILOT_AUTO=0`.
 - **Check a branch:** `/verify`
 - **Reverse engineer (human-gated):** `/recon <target>`. rea is opt-in to save tokens; enable it first:
   ```

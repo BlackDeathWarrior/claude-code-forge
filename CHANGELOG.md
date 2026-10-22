@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- auto-trigger can route to another skill (`AUTOPILOT_SKILL` or `~/.claude/autopilot-auto.skill`); the hook tests no longer read the host's own off file.
+
 ## 0.2.0
 
 **Fixes that stopped the plugin from installing or working as written**
