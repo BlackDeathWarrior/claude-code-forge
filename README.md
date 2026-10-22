@@ -42,7 +42,7 @@ The session model only drives light orchestration; the work is pinned per agent,
 ## Install
 
 ```
-/plugin marketplace add BlackDeathWarrior/claude-code-forge
+/plugin marketplace add prithvijay-m/claude-code-forge
 /plugin install autopilot-forge@autopilot-forge
 ```
 
