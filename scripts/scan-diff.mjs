@@ -42,9 +42,12 @@ export function scanLine(file, text) {
   const isTest = TEST_FILE.test(f);
 
   for (const [rule, re] of SECRET_RULES) {
-    if (!re.test(text)) continue;
-    if ((rule === "hardcoded-credential" || rule === "connection-string-with-password") && (PLACEHOLDER.test(text) || isTest || isDoc)) continue;
-    if (PLACEHOLDER.test(text) && rule !== "private-key") continue;
+    const m = re.exec(text);
+    if (!m) continue;
+    // A placeholder word elsewhere on the line (a template string, a type annotation) must not hide a real key:
+    // judge only the matched value, except for the two rules whose value is a quoted string next to a name.
+    if ((rule === "hardcoded-credential" || rule === "connection-string-with-password") && (PLACEHOLDER.test(m[0]) || isTest || isDoc)) continue;
+    if (PLACEHOLDER.test(m[0]) && rule !== "private-key") continue;
     out.push(["P0", rule, redact(text.trim())]);
     break;
   }
@@ -58,21 +61,45 @@ export function scanLine(file, text) {
   return out;
 }
 
+const ENV_FILE = /(^|\/)\.env(\.(local|production|prod|staging|development))?$/;
+
+/** Env files among the paths a change added (from `git diff --name-status --no-renames`), empty ones and renames included. */
+export function addedEnvFiles(nameStatus) {
+  return nameStatus.split("\n").map((l) => /^A\t(.+)$/.exec(l.trim())?.[1]).filter((f) => f && ENV_FILE.test(f));
+}
+
 /** Findings for a unified diff: only added lines, with their new-file line numbers. */
 export function scanDiff(diff) {
   const findings = [];
   let file = null;
   let line = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
   for (const raw of diff.split("\n")) {
+    // inside a hunk every line is body, even one that happens to start with "+++ " or "--- "
+    if (oldLeft > 0 || newLeft > 0) {
+      if (raw.startsWith("+")) {
+        newLeft--;
+        if (file) for (const [sev, rule, excerpt] of scanLine(file, raw.slice(1))) findings.push([sev, file, line, rule, clip(excerpt)]);
+        line++;
+      } else if (raw.startsWith("-")) oldLeft--;
+      else if (!raw.startsWith("\\")) {
+        oldLeft--;
+        newLeft--;
+        line++;
+      }
+      continue;
+    }
     if (raw.startsWith("+++ ")) {
       const p = raw.slice(4).trim();
       file = p === "/dev/null" ? null : p.replace(/^b\//, "");
-      if (file && /(^|\/)\.env(\.(local|production|prod|staging|development))?$/.test(file)) findings.push(["P0", file, 1, "env-file-committed", "an env file is being added to the repository"]);
       continue;
     }
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
     if (hunk) {
-      line = Number(hunk[1]);
+      line = Number(hunk[2]);
+      oldLeft = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      newLeft = hunk[3] === undefined ? 1 : Number(hunk[3]);
       continue;
     }
     if (!file || raw.startsWith("---") || raw.startsWith("\\")) continue;
@@ -92,12 +119,14 @@ function main() {
   }
   let diff;
   try {
-    diff = execFileSync("git", ["diff", "--unified=0", "--no-color", "--no-ext-diff", `${base}..${head}`], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+    diff = execFileSync("git", ["-c", "core.quotePath=false", "diff", "--unified=0", "--no-color", "--no-ext-diff", `${base}..${head}`], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   } catch (e) {
     console.error(`scan-diff: git diff ${base}..${head} failed: ${String(e.stderr || e.message).trim()}`);
     return 2;
   }
-  const findings = scanDiff(diff).sort((a, b) => a[0].localeCompare(b[0]));
+  const names = execFileSync("git", ["-c", "core.quotePath=false", "diff", "--name-status", "--no-renames", `${base}..${head}`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const envs = addedEnvFiles(names).map((f) => ["P0", f, 1, "env-file-committed", "an env file is being added to the repository"]);
+  const findings = [...envs, ...scanDiff(diff)].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [sev, file, line, rule, excerpt] of findings) console.log(`[${sev}] ${file}:${line} ${rule} - ${excerpt}`);
   const count = (s) => findings.filter((f) => f[0] === s).length;
   console.log(`scan-diff: ${findings.length} finding(s) in ${base}..${head} (P0 ${count("P0")}, P1 ${count("P1")}, P2 ${count("P2")}, P3 ${count("P3")})`);

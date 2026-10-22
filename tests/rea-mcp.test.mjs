@@ -39,3 +39,22 @@ test("rea-mcp leaves an unreadable config alone", () => {
     home.cleanup();
   }
 });
+
+test("rea-mcp keeps the config's permissions and writes through a symlink", { skip: process.platform === "win32" }, async () => {
+  const { chmodSync, lstatSync, statSync, symlinkSync, mkdirSync } = await import("node:fs");
+  const home = tempDir();
+  const env = { HOME: home.dir, USERPROFILE: home.dir };
+  try {
+    mkdirSync(join(home.dir, "dotfiles"));
+    const real = join(home.dir, "dotfiles", "claude.json");
+    writeFileSync(real, JSON.stringify({ mcpServers: {} }));
+    chmodSync(real, 0o600);
+    symlinkSync(real, join(home.dir, ".claude.json"));
+    assert.match(node(home.dir, "rea-mcp.mjs", ["enable"], env).out, /ENABLED/);
+    assert.ok(lstatSync(join(home.dir, ".claude.json")).isSymbolicLink(), "still a symlink");
+    assert.equal(statSync(real).mode & 0o777, 0o600);
+    assert.ok(JSON.parse(readFileSync(real, "utf8")).mcpServers.rea, "the target was updated");
+  } finally {
+    home.cleanup();
+  }
+});

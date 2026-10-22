@@ -22,7 +22,7 @@
 // that kept lessons by hand keeps them. A file this script wrote carries the marker below and is
 // never taken back in.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -93,6 +93,16 @@ export function load() {
 }
 function save(store) {
   mkdirSync(home(), { recursive: true });
+  // load() reads a damaged store as empty: saving that would replace every lesson with the new one.
+  if (existsSync(storePath())) {
+    try {
+      JSON.parse(readFileSync(storePath(), "utf8"));
+    } catch {
+      const kept = `${storePath()}.damaged-${Date.now()}`;
+      copyFileSync(storePath(), kept);
+      throw new Error(`lessons.json is not valid JSON, so nothing was written. A copy is at ${kept.replace(/\\/g, "/")}; fix or delete lessons.json and run it again`);
+    }
+  }
   const tmp = `${storePath()}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(store, null, 2));
   renameSync(tmp, storePath());
@@ -202,19 +212,23 @@ function renderAll(store) {
  * "Every project" and "this machine" are machine lessons, "this project" and "this repository" are repo lessons;
  * any other section (a rendered stack section, say) is skipped. Returns how many were new.
  */
-export function importLegacy(store, text, project, fallback = null) {
+export function importLegacy(store, text, project, fallback = null, stats = {}) {
   let scope = fallback;
   let added = 0;
+  stats.bullets = 0;
+  stats.seen = 0;
   for (const raw of String(text).split(/\r?\n/)) {
     const h = /^##\s+(.*)$/.exec(raw);
     if (h) {
       scope = /every project|this machine/i.test(h[1]) ? "machine" : /this (project|repository)/i.test(h[1]) ? "repo" : null;
       continue;
     }
+    if (/^[-*]\s/.test(raw.trim())) stats.bullets++;
     const m = /^-\s+(\d{4}-\d{2}-\d{2})\s+(.+)$/.exec(raw.trim());
     if (!m || !scope) continue;
     const body = m[2].replace(/^\[[^\]]*\]\s*/, "").replace(/\s*\(seen \d+x\)/g, "").replace(/\s*\(from [^)]*\)\s*$/, "").trim();
     if (body.length < 8) continue;
+    stats.seen++;
     const r = add(store, { scope, tags: [], text: body, project });
     if (r.what === "added") {
       r.lesson.first = r.lesson.last = m[1];
@@ -248,8 +262,13 @@ function main() {
     if (existsSync(kept)) {
       const prior = readFileSync(kept, "utf8");
       if (!prior.includes(MARK)) {
-        const n = importLegacy(store, prior, project);
+        const stats = {};
+        const n = importLegacy(store, prior, project, null, stats);
         if (n) save(store);
+        // The file is about to be replaced by the generated one: keep what was written by hand.
+        const hand = join(project, ".autopilot", existsSync(join(project, ".autopilot", "LESSONS.hand.md")) ? `LESSONS.hand-${Date.now()}.md` : "LESSONS.hand.md");
+        copyFileSync(kept, hand);
+        if (stats.bullets > stats.seen) console.log(`lessons: ${stats.bullets - stats.seen} line(s) of the hand-kept LESSONS.md are not in the dated "- YYYY-MM-DD text" form and were not imported; the original is kept at ${hand.replace(/\\/g, "/")}`);
       }
     }
     const { text, counts } = renderFor(store, project, stack);

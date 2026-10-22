@@ -16,7 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const PROTECTED = /^(main|master|trunk|production|prod|release)$/i;
@@ -24,14 +24,36 @@ const SHELLS = new Set(["bash", "sh", "zsh", "dash", "pwsh", "powershell", "cmd"
 // eval runs its arguments, joined, as a command line.
 const EVALS = new Set(["eval"]);
 // The pipeline's own throwaway lane branches and worktrees. Losing one loses nothing a run needs.
-const BUILTIN_ALLOW = ["branch-force-delete:ap/*", "branch-force-delete:autopilot-lane/*", "worktree-force-remove:*/.autopilot/lanes/*"];
-const WRAPPERS = new Set(["sudo", "env", "command", "time", "nohup", "&", "exec"]);
+const BUILTIN_ALLOW = ["branch-force-delete:ap/*", "branch-force-delete:autopilot-lane/*", "worktree-force-remove:*/.autopilot/lanes/*", "worktree-force-remove:*/.claude/worktrees/*"];
+// Words that run the next command: shell keywords, and wrappers with the options (and the option
+// values) to step over before the real command starts. `extra` counts leading positional words.
+const KEYWORDS = new Set(["then", "do", "else", "elif", "if", "while", "until", "!", "{", "&", "time"]);
+const WRAPPERS = {
+  sudo: { values: ["-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D", "-R"] },
+  doas: { values: ["-u", "-C"] },
+  env: { values: ["-u", "-C", "-S"] },
+  command: { values: [] },
+  nohup: { values: [] },
+  exec: { values: ["-a"] },
+  timeout: { values: ["-s", "-k", "--signal", "--kill-after"], extra: 1 },
+  nice: { values: ["-n"] },
+  ionice: { values: ["-c", "-n", "-p"] },
+  xargs: { values: ["-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a"] },
+  watch: { values: ["-n", "-d"] },
+  stdbuf: { values: ["-i", "-o", "-e"] },
+  setsid: { values: [] },
+  caffeinate: { values: ["-t"] },
+};
 const DELETERS = new Set(["rm", "rmdir", "rd", "del", "erase", "ri", "remove-item"]);
 // Options whose next token is a value, so that value is never read as a flag.
 const COMMIT_VALUE_FLAGS = /^(-[a-zA-Z]*[mFCc]|--message|--file|--author|--date|--fixup|--squash|--reuse-message|--reedit-message|--template|--cleanup)$/;
 
+// Commands that execute what they read on stdin.
+const RUNS_STDIN = /(^|[\s|;&(`])(bash|sh|zsh|dash|ksh|fish|pwsh|powershell|cmd|python[0-9.]*|node|deno|bun|perl|ruby|php|eval|source|xargs|ssh)(\s|$|[;&|)`])/i;
+
 /** Split a command line into segments of unquoted tokens. */
 export function segments(line) {
+  line = line.replace(/\\\r?\n/g, " "); // a backslash before a newline continues the line
   const out = [];
   let seg = [];
   let tok = "";
@@ -76,7 +98,12 @@ export function segments(line) {
 
 /** Drop heredoc bodies: they are text handed to a program (a commit message, a file), not commands. */
 export function stripHeredocs(line) {
-  return line.replace(/<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\n|$|\)|`)/g, (m) => m.slice(0, m.indexOf("\n")) + "\n");
+  return line.replace(/<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\n|$|\)|`)/g, (m, _q, _tag, offset) => {
+    const header = line.slice(line.lastIndexOf("\n", offset - 1) + 1, offset + m.indexOf("\n"));
+    // a body that feeds a shell or interpreter IS commands, so it stays in view
+    if (RUNS_STDIN.test(header)) return m;
+    return m.slice(0, m.indexOf("\n")) + "\n";
+  });
 }
 
 /** Commands nested in $(...) and backticks, scanned as commands of their own. */
@@ -98,8 +125,16 @@ function currentBranch(cwd) {
   }
 }
 
-function dangerousTarget(raw) {
+function dangerousTarget(raw, cwd = process.cwd()) {
   let p = raw.replace(/\\/g, "/").replace(/\/\*$/, "").replace(/\/+$/, "");
+  if (["$pwd", "${pwd}", "$(pwd", "$(pwd)", "`pwd`", "`pwd"].includes(p.toLowerCase())) return "the current directory";
+  if (!/[$`%]/.test(p) && p !== "") {
+    p = posix.normalize(p);
+    // the directory the command runs in, or any directory above it
+    const abs = resolve(cwd, p).replace(/\\/g, "/").toLowerCase();
+    const here = resolve(cwd).replace(/\\/g, "/").toLowerCase();
+    if (abs !== "/" && (here === abs || here.startsWith(abs.replace(/\/+$/, "") + "/"))) return `'${raw}', which contains the directory you are working in`;
+  }
   if (raw === "/" || raw === "\\" || raw === "/*") return "the filesystem root";
   const low = p.toLowerCase();
   if (["~", "$home", "${home}", "$env:userprofile", "%userprofile%", "$env:homepath"].includes(low)) return "your home directory";
@@ -140,7 +175,11 @@ function checkGit(args, cwd) {
     } else if (t.startsWith("-")) flags.push(t);
     else positional.push(t);
   }
-  const has = (...names) => flags.some((f) => names.includes(f.split("=")[0]));
+  // git accepts any unique prefix of a long option, so `--no-verif` is `--no-verify`.
+  const has = (...names) => flags.some((f) => {
+    const o = f.split("=")[0];
+    return names.includes(o) || (o.startsWith("--") && o.length >= 5 && names.some((n) => n.startsWith("--") && n.startsWith(o)));
+  });
 
   if (has("--no-verify") || (sub === "commit" && flags.some((f) => isCluster(f, "n")))) return hit("hook-bypass", "it skips the repository's hooks (--no-verify). Fix what the hook reports and commit normally");
 
@@ -154,6 +193,7 @@ function checkGit(args, cwd) {
     if (has("--force", "--force-with-lease", "--mirror", "--delete", "--prune") || flags.some((f) => isCluster(f, "fd")) || refspecs.some((r) => r.startsWith("+") || r.startsWith(":"))) {
       return hit("force-push", "it force-pushes or deletes remote refs. Push new commits to the run's own branch instead", targets);
     }
+    if (has("--all", "--branches")) return hit("protected-push", "it pushes every branch, protected ones included. Push the run's own branch by name", ["--all"]);
     for (const t of targets) {
       if (PROTECTED.test(t)) return hit("protected-push", `it pushes straight to the protected branch '${t}'. Push the run's own branch and open a pull request`, targets);
     }
@@ -161,7 +201,7 @@ function checkGit(args, cwd) {
   if (sub === "reset" && has("--hard") && positional.some((p) => p !== "HEAD")) return hit("hard-reset", "it hard-resets to another commit and drops work. Use `git revert` for a commit, or `git reset --hard` with no ref to discard only uncommitted changes", positional);
   if (sub === "clean" && !has("--dry-run") && !flags.some((f) => isCluster(f, "n")) && flags.some((f) => isCluster(f, "xX"))) return hit("clean-ignored", "it deletes ignored files, which include the run's ledger, dependencies and local env files. Remove the specific paths you mean", positional);
   if (sub === "branch") {
-    if (flags.some((f) => isCluster(f, "D")) || (has("--delete") && has("--force"))) return hit("branch-force-delete", "it force-deletes a branch that may hold unmerged work. Use `git branch -d`, which refuses unmerged branches", positional);
+    if (flags.some((f) => isCluster(f, "D")) || ((has("--delete") || flags.some((f) => isCluster(f, "d"))) && (has("--force") || flags.some((f) => isCluster(f, "f"))))) return hit("branch-force-delete", "it force-deletes a branch that may hold unmerged work. Use `git branch -d`, which refuses unmerged branches", positional);
     if ((has("--force") || flags.some((f) => isCluster(f, "fM"))) && positional.some((p) => PROTECTED.test(p))) return hit("protected-branch-move", "it force-moves a protected branch", positional);
   }
   if ((sub === "switch" || sub === "checkout") && flags.some((f) => isCluster(f, "CB") || f === "--force-create")) {
@@ -178,23 +218,29 @@ function checkGit(args, cwd) {
 }
 
 function checkGh(args) {
-  const [area, verb] = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+  const words = [];
+  for (let k = 0; k < args.length; k++) {
+    if (["-R", "--repo", "--hostname", "-H", "--header", "-F", "--field", "-f", "--raw-field", "--jq", "-q", "--template", "-t", "--input"].includes(args[k]) && args[k] !== "--") k++;
+    else if (!args[k].startsWith("-")) words.push(args[k].toLowerCase());
+  }
+  const [area, verb] = words;
   if (["repo", "release", "secret", "variable"].includes(area) && verb === "delete") return hit("gh-delete", `it deletes a GitHub ${area}`);
   if (area === "repo" && ["archive", "rename", "edit"].includes(verb)) return hit("gh-repo-settings", "it changes repository-level settings");
   if (area === "pr" && verb === "merge" && args.includes("--admin")) return hit("gh-admin-merge", "it merges past branch protection (--admin). Merge only when checks pass");
   if (area === "api") {
-    const m = args.findIndex((a) => a === "-X" || a === "--method");
-    if (m >= 0 && /^delete$/i.test(args[m + 1] ?? "")) return hit("gh-api-delete", "it sends a DELETE to the GitHub API");
+    const sep = args.findIndex((a) => a === "-X" || a === "--method");
+    const verbs = [args[sep + 1], ...args.map((a) => /^(?:-X|--method=)(.+)$/.exec(a)?.[1])];
+    if (verbs.some((v) => /^delete$/i.test(v ?? ""))) return hit("gh-api-delete", "it sends a DELETE to the GitHub API");
   }
   return null;
 }
 
-function checkDelete(cmd, args) {
+function checkDelete(cmd, args, cwd) {
   const recursive = cmd === "rmdir" || cmd === "rd" || args.some((a) => isCluster(a, "rR") || /^--recursive$/.test(a) || /^\/s$/i.test(a));
   if (!recursive) return null;
   for (const a of args) {
     if (/^-/.test(a) || /^\/[a-z]$/i.test(a)) continue;
-    const why = dangerousTarget(a);
+    const why = dangerousTarget(a, cwd);
     if (why) return hit("recursive-delete", `it recursively deletes ${why}. Delete the specific files or build directory you mean, by literal path`, [a]);
   }
   return null;
@@ -207,9 +253,21 @@ function hitsOf(command, cwd, depth) {
   const found = [];
   for (const inner of nested(command)) found.push(...hitsOf(inner, cwd, depth + 1));
   for (let toks of segments(command)) {
-    while (toks.length && (WRAPPERS.has(base(toks[0])) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0]))) {
-      if (/^HUSKY=0$/.test(toks[0])) found.push(hit("hook-bypass", "it disables the repository's commit hooks (HUSKY=0). Fix what the hook reports and commit normally"));
-      toks = toks.slice(1);
+    for (;;) {
+      if (!toks.length) break;
+      const w = base(toks[0]);
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) {
+        if (/^HUSKY=0$/.test(toks[0])) found.push(hit("hook-bypass", "it disables the repository's commit hooks (HUSKY=0). Fix what the hook reports and commit normally"));
+        toks = toks.slice(1);
+      } else if (KEYWORDS.has(w)) toks = toks.slice(1);
+      else if (Object.hasOwn(WRAPPERS, w)) {
+        const { values, extra = 0 } = WRAPPERS[w];
+        let k = 1;
+        while (k < toks.length && toks[k].startsWith("-") && toks[k] !== "--") k += values.includes(toks[k]) ? 2 : 1;
+        if (toks[k] === "--") k++;
+        k += extra;
+        toks = toks.slice(k);
+      } else break;
     }
     if (!toks.length) continue;
     const cmd = base(toks[0]);
@@ -217,9 +275,12 @@ function hitsOf(command, cwd, depth) {
     let h = null;
     if (cmd === "git") h = checkGit(args, cwd);
     else if (cmd === "gh") h = checkGh(args);
-    else if (DELETERS.has(cmd)) h = checkDelete(cmd, args);
+    else if (DELETERS.has(cmd)) h = checkDelete(cmd, args, cwd);
     else if (SHELLS.has(cmd)) {
       for (const a of args) if (/\s/.test(a)) found.push(...hitsOf(a, cwd, depth + 1));
+    } else if (cmd === "script") {
+      const c = args.findIndex((a) => a === "-c" || a === "--command");
+      if (c >= 0 && args[c + 1]) found.push(...hitsOf(args[c + 1], cwd, depth + 1));
     } else if (EVALS.has(cmd)) found.push(...hitsOf(args.join(" "), cwd, depth + 1));
     if (h) found.push(h);
   }

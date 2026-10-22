@@ -13,8 +13,15 @@
 
 **Guard**
 - Every block has a rule id. A rules file (`.autopilot/guard.json`, `~/.claude/autopilot/guard.json`) can set `scope` (`always` or `runs`) and `allow` entries (`rule` or `rule:glob`).
-- Text in a heredoc is no longer scanned as commands (a commit message that quotes `git push --force` was blocked), and `eval` is followed.
+- Text in a heredoc is no longer scanned as commands (a commit message that quotes `git push --force` was blocked), unless it feeds a shell or interpreter (`bash <<EOF`, `... | sh`), and `eval` is followed.
+- Shell keywords (`then`, `do`, `while`) and wrappers with options (`sudo -u`, `env -i`, `timeout 10`, `nice`, `xargs`, `watch`, `script -c`) no longer hide the command behind them; a backslash-newline joins lines; git's abbreviated long options (`--no-verif`) and `branch -df` are caught; `git push --all` counts as a push to every protected branch; `gh` flags that take values (`-R o/r`) and `gh api -XDELETE` are read correctly; `rm -rf "$PWD"`, `./..` and the repository's own path are blocked.
+- Worktrees under `.claude/worktrees/` (where agent isolation puts them) can be force-removed.
 - The pipeline's own lane branches and lane worktrees can be force-removed.
+
+**Scripts**
+- `tdd-check` restores the tree on SIGINT, SIGTERM and SIGHUP and leaves a marker so a SIGKILLed run is repaired by the next one; a test command that cannot run, or a suite already red at HEAD, is INCONCLUSIVE instead of PASS.
+- `scan-diff` judges a placeholder word only inside the matched value, so a real key on a line with `${...}` or "example" is found; env files added empty or by rename are found; paths with non-ASCII names are scanned.
+- `lessons` refuses to write over a `lessons.json` it cannot parse (a copy is kept), and keeps a hand-kept `LESSONS.md` as `LESSONS.hand.md` before replacing it. `rea-mcp` keeps the config's permissions and follows a symlink.
 
 **New**
 - `host-load.mjs`: the conductor sizes each wave to what the machine can carry.
