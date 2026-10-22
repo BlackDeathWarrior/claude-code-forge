@@ -9,7 +9,7 @@
       "name": "autopilot-forge",
       "source": "./",
       "description": "Autopilot build pipeline + /recon reverse engineering, with tiered subagents, code graph, TDD/scan gates, and cross-project lessons.",
-      "version": "0.2.0"
+      "version": "0.2.1"
     }
   ],
   "description": "Autopilot build pipeline and /recon reverse engineering for Claude Code."
