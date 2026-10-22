@@ -215,7 +215,9 @@ test("runActive: an unfinished run counts, a finished or stale one does not", ()
 });
 
 // End to end, the way the harness calls it: JSON on stdin, exit code out.
-const run = (payload, env = {}) => spawnSync(process.execPath, [guard], { input: payload, encoding: "utf8", env: { ...process.env, ...env } });
+// An empty rules home by default, so a guard.json on the machine running the tests cannot change a result.
+const emptyHome = mkdtempSync(join(tmpdir(), "guard-home-"));
+const run = (payload, env = {}) => spawnSync(process.execPath, [guard], { input: payload, encoding: "utf8", env: { ...process.env, AUTOPILOT_HOME: emptyHome, ...env } });
 const call = (command, cwd) => JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd });
 
 test("the hook exits 2 with the rule and the way out on stderr", () => {
