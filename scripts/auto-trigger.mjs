@@ -20,11 +20,11 @@ const MACHINE = /<task-notification>|\[Subagent hand-back\]|<agent-message|\[SYS
 
 const FIRST = [
   "[autopilot] This prompt looks like a request to build or change software.",
-  "If it is multi-step work on a codebase (an app, a feature, a refactor, a fix that needs more than one small edit) and the autopilot pipeline is not already running for this same work in this conversation, call the Skill tool with `autopilot`, passing the user's request as its arguments, before doing anything else.",
+  "If it is multi-step work on a codebase (an app, a feature, a refactor, a fix that needs more than one small edit) and the autopilot pipeline is not already running for this same work in this conversation, call the Skill tool with `autopilot-forge:autopilot`, passing the user's request as its arguments, before doing anything else.",
   "Answer directly, without autopilot, when it is a question, an explanation, a review, a change you can finish correctly in one edit of a few lines, or not about a codebase.",
   "The user skips the pipeline for one prompt by starting it with `quick:`.",
 ].join(" ");
-const AGAIN = "[autopilot] Reminder: a new multi-step build request goes through the `autopilot` skill; anything that continues the run already in progress in this conversation simply continues it.";
+const AGAIN = "[autopilot] Reminder: a new multi-step build request goes through the `autopilot-forge:autopilot` skill; anything that continues the run already in progress in this conversation simply continues it.";
 
 /** "first", "again", or null for a prompt that should pass untouched. */
 export function classify(prompt, { nudgedBefore = false } = {}) {
@@ -46,7 +46,7 @@ export function classify(prompt, { nudgedBefore = false } = {}) {
 }
 
 function stateFile(sessionId) {
-  const dir = join(homedir(), ".claude", "autopilot-state");
+  const dir = process.env.AUTOPILOT_STATE_DIR || join(homedir(), ".claude", "autopilot-state");
   mkdirSync(dir, { recursive: true });
   // Forget sessions older than a week.
   try {

@@ -5,12 +5,15 @@
 // the change. Deterministic, so it costs no model tokens.
 //   node tdd-check.mjs <BASE> -- <test command>      (repository root, clean tree)
 // Prints one line starting "tdd-check:" and exits 1 only on FAIL.
+// PASS means the tests fail without the change. WEAK PASS means they fail only because a new file they
+// import is gone: a reviewer has to read the assertions.
 import { spawnSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const TEST_FILE = /(^|\/)(tests?|__tests__|spec|specs|e2e|cypress|playwright|fixtures?|__fixtures__|mocks?|__mocks__|__snapshots__)\/|\.(test|spec|e2e|cy|stories)\.[a-z]+$|_test\.(go|py|rb|exs?)$|(^|\/)(test_[^/]*|conftest)\.py$|_spec\.rb$|Tests?\.(java|kt|cs|swift|php)$/i;
+const MISSING_FILE = /cannot find module|module not found|ModuleNotFoundError|ImportError|cannot find package|failed to resolve import|could not resolve|no such file or directory|ERR_MODULE_NOT_FOUND|package .* is not in (GOROOT|std)|unresolved import|cannot load such file/i;
 const CODE_FILE = /\.(m?[jt]sx?|cjs|vue|svelte|astro|py|go|rs|java|kt|kts|rb|php|cs|swift|c|cc|cpp|cxx|h|hpp|scala|exs?|erl|lua|dart|zig)$/i;
 
 /** Split a `git diff --name-status` listing into the test files and source files a check needs. */
@@ -85,6 +88,11 @@ function main() {
   if (result.error && result.error.code === "ETIMEDOUT") return say(`INCONCLUSIVE - \`${command}\` did not finish in 20 minutes with the source reverted`);
   if (result.status === 0) {
     return say(`FAIL - with the ${sourceCount} changed source file(s) put back to ${base.slice(0, 7)}, \`${command}\` still passes. The tests in this change do not test it: ${shown}`, 1);
+  }
+  // A new file taken away makes an importing test fail before any assertion runs. That proves the file exists, not that the tests check it.
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (source.added.length && !source.changed.length && MISSING_FILE.test(output)) {
+    return say(`WEAK PASS - \`${command}\` fails with the new source file(s) removed, but on a missing import (exit ${result.status}), before any assertion ran. That shows the tests need the file, not that they check it: the reviewer must read their assertions. Tests: ${shown}`);
   }
   return say(`PASS - with the ${sourceCount} changed source file(s) put back to ${base.slice(0, 7)}, \`${command}\` fails (exit ${result.status}), so the tests depend on the change: ${shown}`);
 }
