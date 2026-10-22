@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-forge",
+  "owner": {
+    "name": "BlackDeathWarrior",
+    "url": "https://github.com/BlackDeathWarrior"
+  },
+  "plugins": [
+    {
+      "name": "claude-code-forge",
+      "source": "./",
+      "description": "Autopilot build pipeline + /recon reverse engineering, with tiered subagents, code graph, TDD/scan gates, and cross-project lessons."
+    }
+  ]
+}

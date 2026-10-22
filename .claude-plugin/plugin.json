@@ -1,0 +1,20 @@
+{
+  "name": "claude-code-forge",
+  "version": "0.1.0",
+  "description": "Hands-free build pipeline (idea → interview → plan → build → PR) plus a human-in-the-loop reverse-engineering skill, driven by tiered subagents, a code graph, TDD and leftover checks, and cross-project lessons.",
+  "author": {
+    "name": "BlackDeathWarrior"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/BlackDeathWarrior/claude-code-forge",
+  "keywords": [
+    "claude-code",
+    "orchestration",
+    "subagents",
+    "autopilot",
+    "reverse-engineering",
+    "tdd",
+    "code-graph"
+  ],
+  "hooks": "./hooks/hooks.json"
+}
