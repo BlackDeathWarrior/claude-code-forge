@@ -3,10 +3,10 @@
   "version": "0.2.1",
   "description": "Hands-free build pipeline (idea \u2192 interview \u2192 plan \u2192 build \u2192 PR) plus a human-in-the-loop reverse-engineering skill, driven by tiered subagents, a code graph, TDD and leftover checks, and cross-project lessons.",
   "author": {
-    "name": "BlackDeathWarrior"
+    "name": "Prithvijay"
   },
   "license": "MIT",
-  "homepage": "https://github.com/BlackDeathWarrior/claude-code-forge",
+  "homepage": "https://github.com/prithvijay-m/claude-code-forge",
   "keywords": [
     "claude-code",
     "orchestration",
@@ -16,5 +16,5 @@
     "tdd",
     "code-graph"
   ],
-  "repository": "https://github.com/BlackDeathWarrior/claude-code-forge"
+  "repository": "https://github.com/prithvijay-m/claude-code-forge"
 }
