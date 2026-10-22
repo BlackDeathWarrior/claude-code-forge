@@ -30,6 +30,8 @@ Put each line to the user as a default they can keep, change or strike. Keep onl
 - Authorisation is checked on the server for every route and action.
 - Logs and error responses carry no secrets, tokens or personal data.
 - State-changing endpoints are protected against cross-site requests, and public endpoints are rate limited.
+- A replay or dedup record lives as long as the request stays valid, which is the signature's whole tolerance window on both sides of the timestamp, not just the part after it.
+- An idempotency key is released when the work fails for a reason a retry could fix, and kept only when the rejection is final. A key written before the work and kept after a server error turns the sender's retry into a conflict with nothing done.
 
 ## Tests
 
@@ -37,6 +39,7 @@ Put each line to the user as a default they can keep, change or strike. Keep onl
 - A test is written first and seen to fail for the right reason.
 - Critical user flows have an end-to-end test that lives in the repository.
 - A bug fix starts with the test that reproduces the bug.
+- After adding a package or directory, check that git sees it (`git ls-files`, `git check-ignore -v`). A name that matches an ignore rule is left untracked without a word, and the tests pass on the machine that has it.
 
 ## Hygiene
 

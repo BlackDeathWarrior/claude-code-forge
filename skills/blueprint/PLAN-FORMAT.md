@@ -136,6 +136,7 @@ Project-wide requirements every task inherits, one line each, exact values copie
 - **QA** of a terminal program needs `tmux`; without it those scenarios will be reported blocked.
 - **Database**: name a database the build can break without consequence (a local container, a test schema, a PlanetScale development branch). The build never changes a production or shared database: the `db` agent prepares the migration, or the deploy request, and reports it as waiting for a human.
 - **Security review**: recommend yes when the build touches authentication, payments, personal data, file upload, or input from outside the system.
+- **QA** credentials and seed data use reserved values (`.test` or `example.com` addresses, obviously fake keys), so a scan never mistakes them for a leak and a real account is never touched.
 
 ## tasks/NN-slug.md
 
@@ -148,6 +149,7 @@ Project-wide requirements every task inherits, one line each, exact values copie
 **Graph:** <exact code-graph labels to start from, as the graph prints them, e.g. `invoiceTotal()`, `SessionStore`, `tax.ts`; or none for code that does not exist yet>
 **Blocked by:** <NN, NN> | none
 **Touches:** <the modules or directories this task changes>
+**Security:** yes | no
 
 ## What to build
 
@@ -181,3 +183,6 @@ Decisions from the interview that bind this task, and any prototype snippet that
 - Documentation a user reads (README, env example, changelog) changes in the task that changes the behaviour, as one of its acceptance criteria.
 - Every acceptance criterion names its proof, and every proof is something an agent can run or observe on this machine. A behaviour is proved by a test at an agreed seam, written before the code and seen to fail; what a test cannot reach (how a screen looks, a one-off migration) is proved by an observation the criterion spells out.
 - One criterion is one behaviour, because the implementer builds one red-green cycle per criterion. Split a criterion that says "and".
+- **Size for speed.** About 45 minutes of one agent's work per task: one screen, or one API module, or one engine. "API and screens" is two tasks. A task that touches more than about a dozen files or two screens is too big. A build is only as fast as its slowest task, and a late failure in a big task costs the whole task.
+- **Wide, not deep.** Most tasks should depend only on the walking skeleton and the schema or contract tasks, so every lane stays busy. Keep the longest chain of blocking edges to five waves or fewer. Two tasks that can run in the same wave have disjoint `Touches`, or they would conflict at merge.
+- **Security: yes** marks a task that handles authentication, payment, personal data, upload, a signed or replayed request, or input from outside. The conductor adds a security review to the wave that holds it. Write such a task's limits as criteria, not notes: a rate limit is a criterion with a key that is not the default one, proved by showing a second key unaffected; a replay window is a criterion proved at the edge of the signature's tolerance.
