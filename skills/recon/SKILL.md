@@ -36,6 +36,8 @@ The skill install gave you the engine's instructions, not its tools, and the rea
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rea-mcp.mjs" enable
 ```
 
+Or, to keep rea out of every other session, start recon from a terminal with `node "${CLAUDE_PLUGIN_ROOT}/scripts/recon.mjs" "<target and question>"`: it loads rea for that one session only and writes no configuration.
+
 Then check what is actually available before promising analysis. One `runner` dispatch (or do it yourself), read-only:
 
 ```

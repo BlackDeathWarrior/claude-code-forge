@@ -65,6 +65,8 @@ The pipeline calls skills it does not ship. Install the ones you want; see [CRED
 
 Where a companion is missing, the forge still runs the parts it can and reports the rest as blocked rather than faking it.
 
+Spending fewer tokens (a transcript reader, an image guard, a per-session rea launcher): see [docs/token-usage.md](docs/token-usage.md).
+
 ## Usage
 
 - **Build:** `/autopilot add a refunds feature to the billing module`

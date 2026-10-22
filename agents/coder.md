@@ -4,6 +4,7 @@ description: "Implements one well-specified task brief test-first and commits it
 model: sonnet
 effort: medium
 disallowedTools: Agent
+tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob, Skill, Monitor, TaskStop, ToolSearch
 maxTurns: 250
 color: green
 ---

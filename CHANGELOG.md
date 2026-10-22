@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Token savings** (details and measurements in `docs/token-usage.md`)
+- `scripts/spend.mjs`: where the tokens went, by day, agent type and cache miss, read from your own transcripts.
+- `scripts/read-guard.mjs`, registered as a `Read` hook: blocks the 13th image in one transcript and says how to tile the rest into a contact sheet.
+- `scripts/recon.mjs`: runs `/recon` with the rea MCP server loaded for that session only.
+- `coder` has a `tools:` allowlist (first-turn context 44.9k to 34.7k).
+
 ## 0.2.1
 
 - auto-trigger can route to another skill (`AUTOPILOT_SKILL` or `~/.claude/autopilot-auto.skill`); the hook tests no longer read the host's own off file.
