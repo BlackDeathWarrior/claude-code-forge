@@ -9,7 +9,7 @@
 //   node rea-mcp.mjs status    report whether it is on
 //
 // Always exits 0 (1 only on a usage error). Backs up the config before writing.
-import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -46,7 +46,9 @@ function main() {
   copyFileSync(CONFIG, CONFIG + ".rea-toggle.backup");
   if (want) c.mcpServers.rea = ENTRY;
   else delete c.mcpServers.rea;
-  writeFileSync(CONFIG, JSON.stringify(c, null, 2));
+  // write beside the config and rename, so a crash never leaves half a ~/.claude.json
+  writeFileSync(`${CONFIG}.${process.pid}.tmp`, JSON.stringify(c, null, 2));
+  renameSync(`${CONFIG}.${process.pid}.tmp`, CONFIG);
   console.log(`rea-mcp: ${want ? "ENABLED" : "disabled"}. Restart Claude Code for the change to take effect${want ? " (then rea's tools are available to /recon)" : ""}.`);
   return 0;
 }
