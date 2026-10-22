@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const CONFIG = join(homedir(), ".claude.json");
-const ENTRY = process.platform === "win32"
+export const ENTRY = process.platform === "win32"
   ? { command: "cmd.exe", args: ["/d", "/c", "npx", "-y", "rea-agents@6.5.0", "mcp"] }
   : { command: "npx", args: ["-y", "rea-agents@6.5.0", "mcp"] };
 
